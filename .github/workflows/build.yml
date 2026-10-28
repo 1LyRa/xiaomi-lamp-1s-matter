@@ -1,0 +1,52 @@
+name: Build Xiaomi Lamp 1S Matter Firmware
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Compile ESP32 Unicore Matter Binary
+    runs-on: ubuntu-latest
+    container:
+      image: espressif/esp-matter:latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Build Firmware with ESP-IDF & ESP-Matter
+        shell: bash
+        run: |
+          set -e
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          
+          # Initialize ESP-IDF and ESP-Matter environment
+          . /opt/esp/idf/export.sh
+          export ESP_MATTER_PATH=/opt/esp/esp-matter
+          
+          echo "=== Setting target to ESP32 ==="
+          idf.py set-target esp32
+          
+          echo "=== Compiling firmware ==="
+          idf.py build
+          
+          echo "=== Generating merged all-in-one flash binary ==="
+          cd build
+          esptool.py --chip esp32 merge_bin -o merged-flash.bin @flash_args
+          echo "Merged binary created successfully."
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: xiaomi-lamp1s-matter-firmware
+          path: |
+            build/merged-flash.bin
+            build/bootloader/bootloader.bin
+            build/partition_table/partition-table.bin
+            build/xiaomi_lamp_1s_matter.bin
+            build/flasher_args.json
+          if-no-files-found: error

@@ -1,0 +1,19 @@
+# Build artifacts
+build/
+sdkconfig
+sdkconfig.old
+
+# Private firmware backups
+*.bin
+original_firmware_backup.bin
+
+# Editor & System files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Scratch and uploaded files
+scratch/
+.user_uploaded/
