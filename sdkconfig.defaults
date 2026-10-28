@@ -45,3 +45,6 @@ CONFIG_ESP_WIFI_AMPDU_RX_ENABLED=n
 CONFIG_ENABLE_CHIP_SHELL=n
 CONFIG_ENABLE_PW_RPC=n
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# Disable Matter Read Client (not needed for a light accessory, saves flash/RAM)
+CONFIG_DISABLE_READ_CLIENT=y
