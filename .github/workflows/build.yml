@@ -11,33 +11,54 @@ jobs:
   build:
     name: Compile ESP32 Unicore Matter Binary
     runs-on: ubuntu-latest
-    container:
-      image: espressif/esp-matter:latest
 
     steps:
+      - name: Free Disk Space on Runner
+        run: |
+          echo "=== Free disk space before cleanup ==="
+          df -h
+          
+          # Remove bulky preinstalled software to make room for esp-matter image
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/lib/jvm
+          sudo apt-get purge -y azure-cli google-cloud-sdk microsoft-edge-stable firefox google-chrome-stable || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          docker system prune -a --volumes -f || true
+          
+          echo "=== Free disk space after cleanup ==="
+          df -h
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Build Firmware with ESP-IDF & ESP-Matter
-        shell: bash
+      - name: Build Firmware inside ESP-Matter Container
         run: |
-          set -e
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          
-          # Initialize ESP-IDF and ESP-Matter environment
-          . /opt/esp/idf/export.sh
-          export ESP_MATTER_PATH=/opt/esp/esp-matter
-          
-          echo "=== Setting target to ESP32 ==="
-          idf.py set-target esp32
-          
-          echo "=== Compiling firmware ==="
-          idf.py build
-          
-          echo "=== Generating merged all-in-one flash binary ==="
-          cd build
-          esptool.py --chip esp32 merge_bin -o merged-flash.bin @flash_args
-          echo "Merged binary created successfully."
+          docker run --rm \
+            -v ${{ github.workspace }}:/project \
+            -w /project \
+            espressif/esp-matter:latest \
+            bash -c "
+              set -e
+              git config --global --add safe.directory /project
+              . /opt/esp/idf/export.sh
+              export ESP_MATTER_PATH=/opt/esp/esp-matter
+              
+              echo '=== Setting target to ESP32 ==='
+              idf.py set-target esp32
+              
+              echo '=== Compiling firmware ==='
+              idf.py build
+              
+              echo '=== Generating merged all-in-one flash binary ==='
+              cd build
+              esptool.py --chip esp32 merge_bin -o merged-flash.bin @flash_args
+              echo 'Merged binary created successfully.'
+            "
 
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
