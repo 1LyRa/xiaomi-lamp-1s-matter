@@ -46,5 +46,5 @@ CONFIG_ENABLE_CHIP_SHELL=n
 CONFIG_ENABLE_PW_RPC=n
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 
-# Disable Matter Read Client (not needed for a light accessory, saves flash/RAM)
-CONFIG_DISABLE_READ_CLIENT=y
+# Matter Read Client is left ENABLED (esp-matter SDK headers require it internally)
+# Our application code does not use ReadClient directly
