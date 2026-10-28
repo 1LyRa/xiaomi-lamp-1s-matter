@@ -4,6 +4,7 @@
 
 #include <esp_matter.h>
 #include <esp_matter_ota.h>
+#include <platform/CHIPDeviceLayer.h>
 #include <app-common/zap-generated/ids/Clusters.h>
 #include <app-common/zap-generated/ids/Attributes.h>
 
@@ -60,7 +61,7 @@ static esp_err_t app_identification_cb(
 static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
 {
     switch (event->Type) {
-    case chip::DeviceEventType::kCommissioningComplete:
+    case chip::DeviceLayer::DeviceEventType::kCommissioningComplete:
         ESP_LOGI(TAG, "Matter commissioning completed successfully!");
         break;
     default:
@@ -101,9 +102,6 @@ extern "C" void app_main()
     color_temperature_light::config_t light_config;
     light_config.on_off.on_off = false;
     light_config.level_control.current_level = LAMP_DEFAULT_LEVEL;
-    light_config.color_control.color_mode = (uint8_t)ColorControl::ColorMode::kColorTemperature;
-    light_config.color_control.enhanced_color_mode = (uint8_t)ColorControl::ColorMode::kColorTemperature;
-    light_config.color_control.color_temperature.color_temperature_mireds = LAMP_DEFAULT_MIREDS;
 
     endpoint_t *endpoint = color_temperature_light::create(node, &light_config, ENDPOINT_FLAG_NONE, nullptr);
     if (!endpoint) {
@@ -113,6 +111,13 @@ extern "C" void app_main()
 
     uint16_t endpoint_id = endpoint::get_id(endpoint);
     ESP_LOGI(TAG, "Color Temperature Light created at Endpoint ID: %u", endpoint_id);
+
+    // Set default color temperature (250 mireds ~ 4000K)
+    esp_matter_attr_val_t val = esp_matter_uint16(LAMP_DEFAULT_MIREDS);
+    attribute::update(endpoint_id,
+                      ColorControl::Id,
+                      ColorControl::Attributes::ColorTemperatureMireds::Id,
+                      &val);
 
     // 5. Initialize Physical Controls (Push Button + Rotary Knob)
     ESP_ERROR_CHECK(knob_driver_init(endpoint_id));
