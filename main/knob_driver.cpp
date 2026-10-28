@@ -55,7 +55,10 @@ static void knob_task(void *pvParameters)
     uint8_t enc_val = 0;
     int8_t enc_accum = 0;
 
-    int button_held_ticks = 0;
+    const uint32_t poll_interval_ms = 10;
+    const TickType_t poll_delay_ticks = pdMS_TO_TICKS(poll_interval_ms) > 0 ? pdMS_TO_TICKS(poll_interval_ms) : 1;
+
+    uint32_t button_held_ms = 0;
     bool button_consumed_by_rotation = false;
     bool factory_reset_triggered = false;
 
@@ -64,18 +67,18 @@ static void knob_task(void *pvParameters)
         bool btn_pressed = (gpio_get_level(LAMP_BTN_PIN) == 0);
 
         if (btn_pressed) {
-            button_held_ticks++;
+            button_held_ms += poll_interval_ms;
 
-            // Long-press: hold for >8 seconds (8000ms / 5ms = 1600 ticks) triggers Factory Reset
-            if (button_held_ticks > 1600 && !factory_reset_triggered) {
+            // Long-press: hold for >8 seconds triggers Factory Reset
+            if (button_held_ms > 8000 && !factory_reset_triggered) {
                 factory_reset_triggered = true;
                 ESP_LOGW(TAG, "Long-press detected! Initiating Matter Factory Reset...");
                 esp_matter::factory_reset();
             }
         } else {
             // Button released
-            if (button_held_ticks > 6 && button_held_ticks < 300) {
-                // Short click detected (between ~30ms and ~1.5s) without rotation
+            if (button_held_ms >= 40 && button_held_ms <= 1500) {
+                // Short click detected (between ~40ms and ~1.5s) without rotation
                 if (!button_consumed_by_rotation && !factory_reset_triggered) {
                     bool current_pwr = lamp_get_power();
                     bool new_pwr = !current_pwr;
@@ -83,7 +86,7 @@ static void knob_task(void *pvParameters)
                     update_matter_on_off(new_pwr);
                 }
             }
-            button_held_ticks = 0;
+            button_held_ms = 0;
             button_consumed_by_rotation = false;
             factory_reset_triggered = false;
         }
@@ -128,7 +131,7 @@ static void knob_task(void *pvParameters)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(5)); // 5ms poll period
+        vTaskDelay(poll_delay_ticks);
     }
 }
 
@@ -155,8 +158,8 @@ esp_err_t knob_driver_init(uint16_t endpoint_id)
     enc_conf.intr_type = GPIO_INTR_DISABLE;
     ESP_ERROR_CHECK(gpio_config(&enc_conf));
 
-    // Spawn polling task
-    BaseType_t ret = xTaskCreate(knob_task, "knob_task", 4096, NULL, 5, NULL);
+    // Spawn polling task with low background priority (priority 1) to never starve FreeRTOS IDLE or Matter
+    BaseType_t ret = xTaskCreate(knob_task, "knob_task", 4096, NULL, 1, NULL);
     if (ret != pdPASS) {
         ESP_LOGE(TAG, "Failed to create knob polling task");
         return ESP_FAIL;
