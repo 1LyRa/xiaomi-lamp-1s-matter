@@ -9,4 +9,6 @@ idf_component_register(
         esp_matter
         nvs_flash
         driver
+        esp_driver_gpio
+        esp_driver_ledc
 )

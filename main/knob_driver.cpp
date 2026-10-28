@@ -1,3 +1,6 @@
+#include <app/ReadClient.h>
+using chip::app::ReadClient;
+
 #include "knob_driver.h"
 #include "lamp_config.h"
 #include "lamp_driver.h"

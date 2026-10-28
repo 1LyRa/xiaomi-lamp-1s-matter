@@ -2,6 +2,10 @@
 #include <esp_log.h>
 #include <nvs_flash.h>
 
+// Forward include and namespace alias for ReadClient to satisfy esp_matter_client.h
+#include <app/ReadClient.h>
+using chip::app::ReadClient;
+
 #include <esp_matter.h>
 #include <esp_matter_console.h>
 #include <esp_matter_ota.h>
