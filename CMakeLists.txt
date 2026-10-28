@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Globally disable precompiled headers to avoid header-order / macro conflicts
+set(CMAKE_DISABLE_PRECOMPILE_HEADERS ON)
+
 if(NOT DEFINED ENV{ESP_MATTER_PATH})
     message(FATAL_ERROR "ESP_MATTER_PATH is not set")
 endif()
@@ -25,3 +28,8 @@ set(EXTRA_COMPONENT_DIRS "${ESP_MATTER_PATH}/examples/common"
                          ${extra_components_dirs_append})
 
 project(xiaomi_lamp_1s_matter)
+
+# Ensure CHIP_HAVE_CONFIG_H is defined globally across all components
+add_compile_definitions(CHIP_HAVE_CONFIG_H)
+idf_build_set_property(COMPILE_DEFINITIONS "CHIP_HAVE_CONFIG_H" APPEND)
+idf_build_set_property(CXX_COMPILE_OPTIONS "-DCHIP_HAVE_CONFIG_H" APPEND)
