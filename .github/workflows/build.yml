@@ -58,14 +58,17 @@ jobs:
               echo \"Using IDF_PATH: \$IDF_PATH\"
               echo \"Using ESP_MATTER_PATH: \$ESP_MATTER_PATH\"
               
+              cd /project
+              echo \"Current directory: \$(pwd)\"
+              
               echo '=== Setting target to ESP32 ==='
-              idf.py set-target esp32
+              idf.py -C /project set-target esp32
               
               echo '=== Compiling firmware ==='
-              idf.py build
+              idf.py -C /project build
               
               echo '=== Generating merged all-in-one flash binary ==='
-              cd build
+              cd /project/build
               esptool.py --chip esp32 merge_bin -o merged-flash.bin @flash_args
               echo 'Merged binary created successfully.'
             "
