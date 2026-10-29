@@ -1,4 +1,4 @@
-# Xiaomi Mi LED Desk Lamp 1S — Native Matter over Wi-Fi Firmware
+# Xiaomi Mi LED Desk Lamp 1S - Native Matter over Wi-Fi Firmware
 
 Custom firmware for the **Xiaomi Mi LED Desk Lamp 1S** (`YEELIGHT Mango1S Ver:0.3A` / Model `MJTD01SYL`) providing native **Matter over Wi-Fi (MoW)** capability using Espressif's official `esp-matter` SDK and ESP-IDF.
 
@@ -8,7 +8,7 @@ Custom firmware for the **Xiaomi Mi LED Desk Lamp 1S** (`YEELIGHT Mango1S Ver:0.
 
 * **Matter Protocol Support**:
   * Device Type: **Color Temperature Light** (`0x010C`).
-  * Matter Clusters: `OnOff`, `LevelControl` (Brightness 1–100%), and `ColorControl` (Color Temperature: 2700K – 6500K / 153 – 370 mireds).
+  * Matter Clusters: `OnOff`, `LevelControl` (Brightness 1-100%), and `ColorControl` (Color Temperature: 2700K - 6500K / 153 - 370 mireds).
   * Native BLE Commissioning supported (Apple Home, Google Home, Home Assistant, SmartThings).
 * **Hardware Optimized for Desk Lamp 1S**:
   * **FreeRTOS Unicore**: Built specifically for the single-core `ESP32-S0WD` / `ESP32-SOLO-1` processor inside the lamp (`CONFIG_FREERTOS_UNICORE=y`).
@@ -108,7 +108,7 @@ On the exposed PCB, confirm the red silkscreen reads **YEELIGHT Mango1S Ver:0.3A
 
 > [!TIP]
 > **One-Time Wire Soldering:**  
-> You only need serial wires for the initial flash! Once this Matter firmware is installed, all future firmware updates are performed wirelessly via the built-in [Local Wi-Fi OTA Web UI](#-wireless-over-the-air-ota-updates) (http://<lamp-ip>/). After flashing merged-flash.bin successfully, you can desolder all wires and reassemble the base.
+> You only need serial wires for the initial flash! Once this Matter firmware is installed, all future firmware updates are performed wirelessly via the built-in [Local Wi-Fi OTA Web UI](#-wireless-over-the-air-ota-updates) (`http://<lamp-ip>/`). After flashing `merged-flash.bin` successfully, you can desolder all wires and reassemble the base.
 
 ## ⚡ Flashing the Lamp
 
@@ -138,10 +138,10 @@ python -m esptool --chip esp32 --port COM3 --baud 921600 write-flash 0x0 merged-
 
 ## 🌐 Wireless Over-the-Air (OTA) Updates
 
-Once commissioned onto Wi-Fi, future updates can be applied without opening the lamp:
-1. Open `http://<lamp-ip>/` in any browser on your home network.
+Once the initial `merged-flash.bin` firmware is installed and connected to Wi-Fi, future firmware updates can be applied completely wirelessly:
+1. Open `http://<lamp-ip>/` in any browser on your local network.
 2. View device information (firmware version, serial number, uptime, free heap).
-3. Upload `xiaomi_lamp_1s_matter.bin` directly in the web UI. The lamp flashes the update, verifies the slot, and reboots automatically.
+3. When new updates are released, upload the application `.bin` file directly in the web UI. The lamp flashes the update to the secondary OTA partition, verifies the slot, and reboots automatically with rollback protection.
 
 ---
 
