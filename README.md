@@ -83,8 +83,11 @@ You do **not** need to remove the main PCB or disconnect any factory wiring harn
 
 ### Step 1: Open the Lamp Base
 1. Place the lamp upside down on a soft towel or cloth to protect the finish.
-2. Gently peel back the circular rubber foot strip on the bottom plate to reveal **3 Phillips-head screws**.
-3. Remove the 3 screws and gently lift the white bottom cover plate.
+2. Gently peel back the rubber foot strips at the **3 specific spots marked by the yellow arrows** in the image below to reveal the hidden **Phillips-head screws**.
+3. Remove the 3 screws and gently lift off the bottom base cover.
+
+![Xiaomi Lamp 1S Base Screw Locations](docs/images/base_screws.jpg)
+*(Base screw locations photo courtesy of [zorruno.com](https://zorruno.com/2024/flashing-a-mi-home-1s-led-desk-lamp-with-esphome/))*
 
 ![Xiaomi Lamp 1S Board Location in Base](docs/images/pcb_back.jpg)
 
@@ -153,6 +156,7 @@ python -m esptool --chip esp32 --port COM3 --baud 921600 write-flash 0x0 origina
 
 ## 🙏 Credits & Acknowledgments
 
+* Base disassembly guide and screw location photography courtesy of **[zorruno.com](https://zorruno.com/2024/flashing-a-mi-home-1s-led-desk-lamp-with-esphome/)**.
 * Hardware teardown documentation and PCB pinout photography courtesy of **[xoste49/MJTD01SYL](https://github.com/xoste49/MJTD01SYL)**.
 * Built with Espressif's official **[ESP-Matter SDK](https://github.com/espressif/esp-matter)** and **[ESP-IDF](https://github.com/espressif/esp-idf)**.
 * Connectivity Standards Alliance (CSA) **[Matter Specification](https://csa-iot.org/all-solutions/matter/)**.
