@@ -59,6 +59,52 @@ static constexpr uint32_t kPasscode       = <YOUR_STICKER_PASSCODE>;
 
 ---
 
+## 🔍 Hardware Compatibility & Board Identification
+
+Before flashing, **verify your lamp model and board revision**. Xiaomi has released multiple desk lamp generations that look nearly identical externally but use completely incompatible microcontrollers internally.
+
+### Supported vs Unsupported Models
+
+| Model | Marketing Name | Internal Board Silkscreen | Microcontroller | Matter Compatible? |
+| :--- | :--- | :--- | :--- | :--- |
+| **MJTD01SYL** | **Xiaomi Mi LED Desk Lamp 1S** | **YEELIGHT Mango1S Ver:0.3A** | **ESP32-S0WD / ESP-WROOM-32D** | ✅ **YES (This Project)** |
+| MJTD01YL | Xiaomi Mi LED Desk Lamp (1st Gen) | YEELIGHT Mango Ver:... | ESP8266EX / ESP-WROOM-02D | ❌ **NO** (ESP8266 lacks RAM & BLE) |
+| MJTD02YL | Xiaomi Mi Smart LED Desk Lamp Pro | Dual-arm PCB | ESP32 (Different GPIO pinout) | ❌ **NO** (Incompatible PWM/rails) |
+
+> [!CAUTION]
+> **Check your board before flashing!**  
+> If your lamp is the older 1st Gen MJTD01YL (ESP8266), flashing an ESP32 binary will fail or permanently brick the device. Always open the base and check that the red silkscreen reads **YEELIGHT Mango1S Ver:0.3A**.
+
+---
+
+## 🛠️ Disassembly & Finding the Contact Pads
+
+You do **not** need to remove the main PCB or disconnect any factory wiring harness to flash the firmware. The programming test pads are directly accessible on the bottom face of the PCB once the base cover is removed.
+
+### Step 1: Open the Lamp Base
+1. Place the lamp upside down on a soft towel or cloth to protect the finish.
+2. Gently peel back the circular rubber foot strip on the bottom plate to reveal **3 Phillips-head screws**.
+3. Remove the 3 screws and gently lift the white bottom cover plate.
+
+![Xiaomi Lamp 1S Board Location in Base](docs/images/pcb_back.jpg)
+
+### Step 2: Locate the Programming Pads
+On the exposed PCB, confirm the red silkscreen reads **YEELIGHT Mango1S Ver:0.3A**. Right next to the model markings, you will find circular gold-plated test pads clearly labeled on the silkscreen:
+
+![Xiaomi Lamp 1S Flashing Pinout Diagram](docs/images/pinout_overview.png)
+
+| Lamp Test Pad | USB-to-UART Adapter Pin | Function | Notes |
+| :--- | :--- | :--- | :--- |
+| **+3.3V** | **3.3V** | Power | ⚠️ **Use 3.3V only!** Connecting 5V will destroy the ESP32. |
+| **GND** | **GND** | Ground | Common reference ground. |
+| **TXD** | **RXD** | UART TX | Connects to Adapter Receive pin. |
+| **RXD** | **TXD** | UART RX | Connects to Adapter Transmit pin. |
+| **IO0** *(GPIO0)* | **GND** | Boot Mode | **Hold LOW (bridge to GND) while powering on** to enter flash mode. |
+
+> [!TIP]
+> **One-Time Wire Soldering:**  
+> You only need serial wires for the initial flash! Once this Matter firmware is installed, all future firmware updates are performed wirelessly via the built-in [Local Wi-Fi OTA Web UI](#-wireless-over-the-air-ota-updates) (http://<lamp-ip>/). After flashing merged-flash.bin successfully, you can desolder all wires and reassemble the base.
+
 ## ⚡ Flashing the Lamp
 
 ### 1. Download the Precompiled Binary
