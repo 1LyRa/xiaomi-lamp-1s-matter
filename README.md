@@ -92,6 +92,8 @@ You do **not** need to remove the main PCB or disconnect any factory wiring harn
 On the exposed PCB, confirm the red silkscreen reads **YEELIGHT Mango1S Ver:0.3A**. Right next to the model markings, you will find circular gold-plated test pads clearly labeled on the silkscreen:
 
 ![Xiaomi Lamp 1S Flashing Pinout Diagram](docs/images/pinout_overview.png)
+*(Hardware teardown and pinout diagram courtesy of [xoste49/MJTD01SYL](https://github.com/xoste49/MJTD01SYL))*
+
 
 | Lamp Test Pad | USB-to-UART Adapter Pin | Function | Notes |
 | :--- | :--- | :--- | :--- |
@@ -146,3 +148,12 @@ If you ever wish to restore the original stock Xiaomi cloud firmware, your backu
 ```powershell
 python -m esptool --chip esp32 --port COM3 --baud 921600 write-flash 0x0 original_firmware_backup.bin
 ```
+
+---
+
+## 🙏 Credits & Acknowledgments
+
+* Hardware teardown documentation and PCB pinout photography courtesy of **[xoste49/MJTD01SYL](https://github.com/xoste49/MJTD01SYL)**.
+* Built with Espressif's official **[ESP-Matter SDK](https://github.com/espressif/esp-matter)** and **[ESP-IDF](https://github.com/espressif/esp-idf)**.
+* Connectivity Standards Alliance (CSA) **[Matter Specification](https://csa-iot.org/all-solutions/matter/)**.
+
