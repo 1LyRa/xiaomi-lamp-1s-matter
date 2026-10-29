@@ -11,7 +11,13 @@ if(NOT DEFINED ENV{ESP_MATTER_DEVICE_PATH})
     set(ENV{ESP_MATTER_DEVICE_PATH} $ENV{ESP_MATTER_PATH}/device_hal/device/esp32_devkit_c)
 endif()
 
-set(PROJECT_VER "1.0.0")
+# Read firmware version from version.txt (auto-incremented by build-local.bat)
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/version.txt")
+    file(STRINGS "${CMAKE_CURRENT_LIST_DIR}/version.txt" PROJECT_VER LIMIT_COUNT 1)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/version.txt")
+else()
+    set(PROJECT_VER "1.0.1")
+endif()
 set(PROJECT_VER_NUMBER 1)
 
 set(ESP_MATTER_PATH $ENV{ESP_MATTER_PATH})
@@ -28,6 +34,9 @@ set(EXTRA_COMPONENT_DIRS "${ESP_MATTER_PATH}/examples/common"
                          ${extra_components_dirs_append})
 
 project(xiaomi_lamp_1s_matter)
+
+# Expose main/include globally so CHIPProjectConfig.h is found by all Matter components
+include_directories("${CMAKE_CURRENT_LIST_DIR}/main/include")
 
 # Ensure CHIP_HAVE_CONFIG_H is defined globally across all components
 add_compile_definitions(CHIP_HAVE_CONFIG_H)

@@ -26,10 +26,12 @@
 #define LAMP_COLD_LEDC_CH       LEDC_CHANNEL_0
 #define LAMP_WARM_LEDC_CH       LEDC_CHANNEL_1
 
-// Rotary Encoder & Button:
-// - Push Button: GPIO33 (Active LOW, internal pull-up)
+// Rotary Encoder & Buttons:
+// - Knob Push Button: GPIO33 (Active LOW, internal pull-up)
+// - Bottom Pinhole Reset Button: GPIO16 (Active LOW, internal pull-up, from stock 0x40115a24)
 // - Rotary Encoder: GPIO26 & GPIO27 (Standard Mango1S)
 #define LAMP_BTN_PIN            GPIO_NUM_33
+#define LAMP_RESET_BTN_PIN      GPIO_NUM_16
 #define LAMP_ROTARY_A_PIN       GPIO_NUM_26
 #define LAMP_ROTARY_B_PIN       GPIO_NUM_27
 

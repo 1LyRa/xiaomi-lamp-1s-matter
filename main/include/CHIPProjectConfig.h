@@ -1,0 +1,6 @@
+#pragma once
+
+// Device Identification overrides for Xiaomi Mi LED Desk Lamp 1S
+#define CHIP_DEVICE_CONFIG_DEVICE_VENDOR_NAME "Xiaomi"
+#define CHIP_DEVICE_CONFIG_DEVICE_PRODUCT_NAME "Mi LED Desk Lamp 1S"
+#define CHIP_DEVICE_CONFIG_DEFAULT_DEVICE_HARDWARE_VERSION_STRING "MJTD01SYL"

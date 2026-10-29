@@ -2,6 +2,9 @@
 build/
 sdkconfig
 sdkconfig.old
+managed_components/
+artifacts/
+monitor.py
 
 # Private firmware backups
 *.bin
