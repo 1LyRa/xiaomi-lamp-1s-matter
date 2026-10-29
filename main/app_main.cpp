@@ -43,23 +43,47 @@ static volatile int32_t s_ble_adv_cooldown_ms = 0;
 static char s_serial_str[16] = "5448E66AE90F";
 static httpd_handle_t s_ota_server = nullptr;
 
-// ============================================================================
-// Matter Commissioning Setup Credentials
-// Standard Matter Test Setup Credentials (open-source default):
-//   Manual Pairing Code: 3497-011-2332
-//   Setup QR Payload:    MT:Y.K9042C00KA0648G00
-//   Passcode:            20202021
-//   Discriminator:       3840 (0xF00)
-//   QR URL: https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3AY.K9042C00KA0648G00
-//
-// NOTE: Anyone wishing to use a physical Matter sticker from a spare bulb or plug
-// can simply customize kDiscriminator and kPasscode below.
-// ============================================================================
+// Circular buffer for runtime web logging (/logs)
+#define WEB_LOG_BUFFER_SIZE 16384
+static char s_web_log_buf[WEB_LOG_BUFFER_SIZE];
+static size_t s_web_log_head = 0;
+static size_t s_web_log_len = 0;
+static portMUX_TYPE s_web_log_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static int web_log_vprintf(const char *format, va_list args)
+{
+    va_list args_copy;
+    va_copy(args_copy, args);
+    int ret = vprintf(format, args_copy);
+    va_end(args_copy);
+
+    char temp[256];
+    int len = vsnprintf(temp, sizeof(temp), format, args);
+    if (len > 0) {
+        if (len > (int)sizeof(temp) - 1) len = sizeof(temp) - 1;
+        portENTER_CRITICAL(&s_web_log_mux);
+        for (int i = 0; i < len; ++i) {
+            s_web_log_buf[s_web_log_head] = temp[i];
+            s_web_log_head = (s_web_log_head + 1) % WEB_LOG_BUFFER_SIZE;
+            if (s_web_log_len < WEB_LOG_BUFFER_SIZE) {
+                s_web_log_len++;
+            }
+        }
+        portEXIT_CRITICAL(&s_web_log_mux);
+    }
+    return ret;
+}
+
+// Custom CommissionableDataProvider matching the physical Matter QR sticker:
+//   QR Payload:  MT:QDOA2KGB00SUJN33U00
+//   Manual Code: 1475-062-2865
+//   Discriminator: 1696 (0x6A0)
+//   Passcode:      37468562
 class LampCommissionableDataProvider : public chip::DeviceLayer::CommissionableDataProvider
 {
 public:
-    static constexpr uint16_t kDiscriminator  = 3840;
-    static constexpr uint32_t kPasscode       = 20202021;
+    static constexpr uint16_t kDiscriminator  = 1696;
+    static constexpr uint32_t kPasscode       = 37468562;
     static constexpr uint32_t kIterationCount = 1000;
 
     CHIP_ERROR GetSetupDiscriminator(uint16_t &setupDiscriminator) override
@@ -154,9 +178,10 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
         "<title>Xiaomi Lamp 1S OTA</title>"
         "<style>body{font-family:system-ui,sans-serif;background:#121212;color:#eee;max-width:460px;margin:40px auto;padding:20px;border-radius:12px;background:#1e1e1e}"
         "button,input{margin-top:12px;padding:10px;width:100%%;box-sizing:border-box;border-radius:6px;border:1px solid #444;background:#2c2c2c;color:#fff}"
-        "button{background:#ff6700;border:none;font-weight:bold;cursor:pointer}</style></head><body>"
+        "button{background:#ff6700;border:none;font-weight:bold;cursor:pointer}a{color:#ff6700;text-decoration:none}</style></head><body>"
         "<h2>Xiaomi Mi LED Desk Lamp 1S</h2>"
         "<p><b>Model:</b> MJTD01SYL<br><b>Firmware Version:</b> %s<br><b>Active Partition:</b> %s<br><b>Serial:</b> %s</p>"
+        "<p><a href='/logs' target='_blank'><b>View Live Device Logs (/logs)</b></a></p>"
         "<form method='POST' action='/ota' enctype='application/octet-stream' onsubmit=\""
         "event.preventDefault();var f=document.getElementById('f').files[0];if(!f)return;"
         "var s=document.getElementById('s');s.innerText='Uploading & flashing ('+f.size+' bytes)...';"
@@ -169,6 +194,35 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
         s_serial_str);
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, html, len);
+}
+
+static esp_err_t ota_logs_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/plain; charset=utf-8");
+    char chunk[1024];
+    size_t offset = 0;
+    while (true) {
+        size_t to_copy = 0;
+        portENTER_CRITICAL(&s_web_log_mux);
+        if (offset < s_web_log_len) {
+            size_t start_idx = (s_web_log_head + WEB_LOG_BUFFER_SIZE - s_web_log_len + offset) % WEB_LOG_BUFFER_SIZE;
+            to_copy = sizeof(chunk);
+            if (to_copy > (s_web_log_len - offset)) to_copy = s_web_log_len - offset;
+            for (size_t i = 0; i < to_copy; ++i) {
+                chunk[i] = s_web_log_buf[(start_idx + i) % WEB_LOG_BUFFER_SIZE];
+            }
+        }
+        portEXIT_CRITICAL(&s_web_log_mux);
+
+        if (to_copy == 0) {
+            break;
+        }
+        if (httpd_resp_send_chunk(req, chunk, to_copy) != ESP_OK) {
+            return ESP_FAIL;
+        }
+        offset += to_copy;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
 }
 
 static esp_err_t ota_post_handler(httpd_req_t *req)
@@ -255,9 +309,16 @@ static void start_local_ota_server()
             .handler  = ota_post_handler,
             .user_ctx = nullptr
         };
+        static const httpd_uri_t get_logs = {
+            .uri      = "/logs",
+            .method   = HTTP_GET,
+            .handler  = ota_logs_get_handler,
+            .user_ctx = nullptr
+        };
         httpd_register_uri_handler(s_ota_server, &get_root);
+        httpd_register_uri_handler(s_ota_server, &get_logs);
         httpd_register_uri_handler(s_ota_server, &post_ota);
-        ESP_LOGI(TAG, "Local Wi-Fi OTA HTTP Server started on port 80 (GET / and POST /ota)");
+        ESP_LOGI(TAG, "Local Wi-Fi OTA & Log Server started on port 80 (GET /, GET /logs, POST /ota)");
     }
 }
 
@@ -489,6 +550,9 @@ extern "C" void app_main()
 {
     esp_err_t err = ESP_OK;
 
+    // Enable in-memory circular logging for runtime web viewer (http://<lamp-ip>/logs)
+    esp_log_set_vprintf(web_log_vprintf);
+
     // Mark current OTA slot valid so bootloader won't roll back after a successful OTA update
     esp_ota_mark_app_valid_cancel_rollback();
 
@@ -501,11 +565,10 @@ extern "C" void app_main()
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
     ESP_LOGI(TAG, "=================================================");
-    ESP_LOGI(TAG, "Starting Xiaomi Lamp 1S Matter over Wi-Fi Firmware");
+    ESP_LOGI(TAG, "Starting Xiaomi Lamp 1S Matter over Wi-Fi Firmware (Dev)");
     ESP_LOGI(TAG, "Firmware Version: %s", app_desc ? app_desc->version : "unknown");
     ESP_LOGI(TAG, "Serial / MAC:     %s", s_serial_str);
-    ESP_LOGI(TAG, "Pairing Code:     3497-011-2332 (MT:Y.K9042C00KA0648G00)");
-    ESP_LOGI(TAG, "QR Setup URL:     https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%%3AY.K9042C00KA0648G00");
+    ESP_LOGI(TAG, "Pairing Sticker:  1475-062-2865 (MT:QDOA2KGB00SUJN33U00)");
     ESP_LOGI(TAG, "Hardware:         ESP32-S0WD / ESP-WROOM-32D (Unicore)");
     ESP_LOGI(TAG, "=================================================");
 
