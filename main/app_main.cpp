@@ -565,7 +565,7 @@ extern "C" void app_main()
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
     ESP_LOGI(TAG, "=================================================");
-    ESP_LOGI(TAG, "Starting Xiaomi Lamp 1S Matter over Wi-Fi Firmware (Dev)");
+    ESP_LOGI(TAG, "Starting Xiaomi Lamp 1S Matter over Wi-Fi Firmware");
     ESP_LOGI(TAG, "Firmware Version: %s", app_desc ? app_desc->version : "unknown");
     ESP_LOGI(TAG, "Serial / MAC:     %s", s_serial_str);
     ESP_LOGI(TAG, "Pairing Sticker:  1475-062-2865 (MT:QDOA2KGB00SUJN33U00)");

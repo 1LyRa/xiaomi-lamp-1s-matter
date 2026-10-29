@@ -37,24 +37,24 @@ Once flashed and powered on, the lamp enters commissioning mode automatically (b
 
 | Method | Value |
 | :--- | :--- |
-| **Manual Pairing Code** | **`3497-011-2332`** |
-| **Passcode** | `20202021` |
-| **Discriminator** | `3840` (`0x0F00`) |
-| **Setup QR Code Payload** | `MT:Y.K9042C00KA0648G00` |
-| **Interactive Setup QR Code** | [Open Setup QR Code in Browser](https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3AY.K9042C00KA0648G00) |
+| **Manual Pairing Code** | **`1475-062-2865`** |
+| **Passcode** | `37468562` |
+| **Discriminator** | `1696` (`0x06A0`) |
+| **Setup QR Code Payload** | `MT:QDOA2KGB00SUJN33U00` |
+| **Interactive Setup QR Code** | [Open Setup QR Code in Browser](https://project-chip.github.io/connectedhomeip/qrcode.html?data=MT%3AQDOA2KGB00SUJN33U00) |
 
 ### Pairing Steps
 1. Open your smart home app:
-   * **Google Home**: Devices ➔ + Add ➔ Matter-enabled device ➔ Scan QR code or enter code `3497-011-2332`.
-   * **Apple Home**: Add Accessory ➔ More options / Scan ➔ Enter code `3497-011-2332`.
+   * **Google Home**: Devices ➔ + Add ➔ Matter-enabled device ➔ Scan QR code or enter code `1475-062-2865`.
+   * **Apple Home**: Add Accessory ➔ More options / Scan ➔ Enter code `1475-062-2865`.
    * **Home Assistant**: Add Integration ➔ Matter ➔ Commission device.
 2. Select your Wi-Fi network and complete setup.
 
-### 🏷️ Using a Custom Physical Sticker
-If you have a physical Matter QR/code sticker from a spare device you wish to attach to the lamp, simply edit `kDiscriminator` and `kPasscode` at the top of `main/app_main.cpp`:
+### 🏷️ Customizing Pairing Credentials
+If you have your own Matter QR sticker or prefer custom credentials, simply edit `kDiscriminator` and `kPasscode` at the top of `main/app_main.cpp`:
 ```cpp
-static constexpr uint16_t kDiscriminator  = <YOUR_STICKER_DISCRIMINATOR>;
-static constexpr uint32_t kPasscode       = <YOUR_STICKER_PASSCODE>;
+static constexpr uint16_t kDiscriminator  = <YOUR_DISCRIMINATOR>;
+static constexpr uint32_t kPasscode       = <YOUR_PASSCODE>;
 ```
 
 ---
