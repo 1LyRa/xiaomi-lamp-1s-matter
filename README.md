@@ -1,4 +1,8 @@
-# Xiaomi Mi LED Desk Lamp 1S - Native Matter over Wi-Fi Firmware
+# Xiaomi Mi LED Desk Lamp 1S - Native Matter over Wi-Fi Firmware (Dev Branch)
+
+> [!NOTE]
+> **Developer Branch (`dev`)**  
+> This branch contains developer diagnostics, active live logging, and custom hardware credentials (`v1.0.13-dev`). For the standard, stable public release with test credentials, see the [`main`](https://github.com/1LyRa/xiaomi-lamp-1s-matter/tree/main) branch.
 
 Custom firmware for the **Xiaomi Mi LED Desk Lamp 1S** (`YEELIGHT Mango1S Ver:0.3A` / Model `MJTD01SYL`) providing native **Matter over Wi-Fi (MoW)** capability using Espressif's official `esp-matter` SDK and ESP-IDF.
 
@@ -22,6 +26,11 @@ Custom firmware for the **Xiaomi Mi LED Desk Lamp 1S** (`YEELIGHT Mango1S Ver:0.
     * **Push & Rotate Knob**: Adjust color temperature (Warm / Cool).
     * **Bottom Pinhole Button (3 seconds hold)**: Flashes confirmation and performs a full Matter factory reset (clears pairing fabrics and enters commissioning mode).
   * **Visual Feedback**: Soft breathing indicator during commissioning mode, fast pulsing during active pairing, and 3 distinct flashes upon factory reset.
+* **Live In-Memory Web Log Server (`/logs`)**:
+  * Embedded 16 KB circular ring buffer hooked directly into the ESP-IDF logging framework (`esp_log_set_vprintf`).
+  * Access real-time boot and Matter runtime logs over Wi-Fi at `http://<lamp-ip>/logs`.
+  * Diagnose Matter CASE handshakes, subscriptions, network states, and attribute changes without disassembling the lamp or soldering UART wires.
+  * Direct one-click navigation link built into the main OTA web interface.
 * **Over-The-Air (OTA) Updates**:
   * **Local Wi-Fi Web UI**: Once connected to Wi-Fi, the lamp hosts an HTTP OTA web server on port 80 at `http://<lamp-ip>/`.
   * Allows updating future firmware builds wirelessly without disassembling the lamp!
