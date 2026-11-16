@@ -1,10 +1,13 @@
+#include <esp_attr.h>
 #include <esp_err.h>
+#include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_app_desc.h>
 #include <esp_mac.h>
 #include <esp_ota_ops.h>
 #include <esp_http_server.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <nvs_flash.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -17,6 +20,7 @@
 #include <platform/CHIPDeviceLayer.h>
 #include <platform/CommissionableDataProvider.h>
 #include <crypto/CHIPCryptoPAL.h>
+#include <lib/support/logging/CHIPLogging.h>
 #include <app-common/zap-generated/ids/Clusters.h>
 #include <app-common/zap-generated/ids/Attributes.h>
 
@@ -43,12 +47,55 @@ static volatile int32_t s_ble_adv_cooldown_ms = 0;
 static char s_serial_str[16] = "5448E66AE90F";
 static httpd_handle_t s_ota_server = nullptr;
 
-// Circular buffer for runtime web logging (/logs)
-#define WEB_LOG_BUFFER_SIZE 16384
-static char s_web_log_buf[WEB_LOG_BUFFER_SIZE];
-static size_t s_web_log_head = 0;
+// Circular buffer for runtime web logging (/logs) and persistent RTC errors/warnings (/errors)
+#define WEB_LOG_BUFFER_SIZE 32768
+#define WEB_ERR_BUFFER_SIZE 7680
+#define WEB_ERR_RTC_MAGIC   0x4C414D505F455252ULL
+
+struct RtcErrorLogStore {
+    uint64_t magic;
+    uint64_t total;
+    size_t len;
+    char buf[WEB_ERR_BUFFER_SIZE];
+};
+
+static char *s_web_log_buf = nullptr;
 static size_t s_web_log_len = 0;
+static uint64_t s_web_log_total = 0;
+static RTC_NOINIT_ATTR RtcErrorLogStore s_rtc_err_store;
+static bool s_web_err_at_line_start = true;
+static bool s_web_err_capturing_line = false;
 static portMUX_TYPE s_web_log_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static inline void ring_buf_append_byte(char *buf, size_t buf_size, uint64_t *total, size_t *len, char c)
+{
+    if (!buf) {
+        return;
+    }
+    buf[(*total) % buf_size] = c;
+    (*total)++;
+    if (*len < buf_size) {
+        (*len)++;
+    }
+}
+
+static bool is_error_or_warn_line(const char *str, int len)
+{
+    int idx = 0;
+    if (len >= 4 && str[0] == '\033' && str[1] == '[') {
+        idx = 2;
+        while (idx < len && str[idx] != 'm') {
+            idx++;
+        }
+        if (idx < len && str[idx] == 'm') {
+            idx++;
+        }
+    }
+    return (idx + 3 <= len) &&
+           (str[idx] == 'E' || str[idx] == 'W') &&
+           str[idx + 1] == ' ' &&
+           str[idx + 2] == '(';
+}
 
 static int web_log_vprintf(const char *format, va_list args)
 {
@@ -60,18 +107,77 @@ static int web_log_vprintf(const char *format, va_list args)
     char temp[256];
     int len = vsnprintf(temp, sizeof(temp), format, args);
     if (len > 0) {
-        if (len > (int)sizeof(temp) - 1) len = sizeof(temp) - 1;
+        if (len >= (int)sizeof(temp)) {
+            len = sizeof(temp) - 1;
+            temp[len - 1] = '\n';
+        }
         portENTER_CRITICAL(&s_web_log_mux);
         for (int i = 0; i < len; ++i) {
-            s_web_log_buf[s_web_log_head] = temp[i];
-            s_web_log_head = (s_web_log_head + 1) % WEB_LOG_BUFFER_SIZE;
-            if (s_web_log_len < WEB_LOG_BUFFER_SIZE) {
-                s_web_log_len++;
+            char c = temp[i];
+            ring_buf_append_byte(s_web_log_buf, WEB_LOG_BUFFER_SIZE, &s_web_log_total, &s_web_log_len, c);
+
+            if (s_web_err_at_line_start) {
+                if (c == '\r' || c == '\n') {
+                    continue;
+                }
+                s_web_err_capturing_line = is_error_or_warn_line(temp + i, len - i);
+                s_web_err_at_line_start = false;
+            }
+            if (s_web_err_capturing_line) {
+                ring_buf_append_byte(s_rtc_err_store.buf, WEB_ERR_BUFFER_SIZE,
+                                     &s_rtc_err_store.total, &s_rtc_err_store.len, c);
+            }
+            if (c == '\n') {
+                s_web_err_at_line_start = true;
+                s_web_err_capturing_line = false;
             }
         }
         portEXIT_CRITICAL(&s_web_log_mux);
     }
     return ret;
+}
+
+static bool is_noisy_chip_progress(const char *module, const char *formatted)
+{
+    if (!module || !formatted) {
+        return false;
+    }
+    if (strcmp(module, "EM") == 0) {
+        return (strstr(formatted, "Msg Retransmission to ") != nullptr &&
+                strstr(formatted, "scheduled for ") != nullptr);
+    }
+    if (strcmp(module, "DIS") == 0) {
+        return (strstr(formatted, "score has not improved:") != nullptr ||
+                strstr(formatted, "Checking node lookup status") != nullptr ||
+                strstr(formatted, "Keeping DNSSD lookup active") != nullptr);
+    }
+    return false;
+}
+
+static void chip_log_redirect_cb(const char *module, uint8_t category, const char *msg, va_list args)
+{
+    char tag[16];
+    snprintf(tag, sizeof(tag), "chip[%s]", module ? module : "");
+
+    char formatted[224];
+    vsnprintf(formatted, sizeof(formatted), msg, args);
+
+    if (category != chip::Logging::kLogCategory_Error && is_noisy_chip_progress(module, formatted)) {
+        return;
+    }
+
+    switch (category) {
+    case chip::Logging::kLogCategory_Error:
+        ESP_LOGE(tag, "%s", formatted);
+        break;
+    case chip::Logging::kLogCategory_Progress:
+        ESP_LOGI(tag, "%s", formatted);
+        break;
+    case chip::Logging::kLogCategory_Detail:
+    default:
+        ESP_LOGD(tag, "%s", formatted);
+        break;
+    }
 }
 
 // Custom CommissionableDataProvider matching the physical Matter QR sticker:
@@ -172,6 +278,14 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
     const esp_partition_t *running = esp_ota_get_running_partition();
+    uint64_t uptime_s = static_cast<uint64_t>(esp_timer_get_time() / 1000000ULL);
+    unsigned long days = static_cast<unsigned long>(uptime_s / 86400ULL);
+    unsigned long hours = static_cast<unsigned long>((uptime_s % 86400ULL) / 3600ULL);
+    unsigned long mins = static_cast<unsigned long>((uptime_s % 3600ULL) / 60ULL);
+    unsigned long secs = static_cast<unsigned long>(uptime_s % 60ULL);
+    unsigned long free_kb = static_cast<unsigned long>(esp_get_free_heap_size() / 1024U);
+    unsigned long min_free_kb = static_cast<unsigned long>(esp_get_minimum_free_heap_size() / 1024U);
+
     char html[1536];
     int len = snprintf(html, sizeof(html),
         "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -180,8 +294,10 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
         "button,input{margin-top:12px;padding:10px;width:100%%;box-sizing:border-box;border-radius:6px;border:1px solid #444;background:#2c2c2c;color:#fff}"
         "button{background:#ff6700;border:none;font-weight:bold;cursor:pointer}a{color:#ff6700;text-decoration:none}</style></head><body>"
         "<h2>Xiaomi Mi LED Desk Lamp 1S</h2>"
-        "<p><b>Model:</b> MJTD01SYL<br><b>Firmware Version:</b> %s<br><b>Active Partition:</b> %s<br><b>Serial:</b> %s</p>"
-        "<p><a href='/logs' target='_blank'><b>View Live Device Logs (/logs)</b></a></p>"
+        "<p><b>Model:</b> MJTD01SYL<br><b>Firmware Version:</b> %s<br><b>Active Partition:</b> %s<br><b>Serial:</b> %s<br>"
+        "<b>Uptime:</b> %lud %02lu:%02lu:%02lu<br><b>Free Heap:</b> %lu KB (min: %lu KB)</p>"
+        "<p><a href='/logs' target='_blank'><b>View Live Device Logs (/logs)</b></a><br>"
+        "<a href='/errors' target='_blank'><b>View Error &amp; Warning Logs (/errors)</b></a></p>"
         "<form method='POST' action='/ota' enctype='application/octet-stream' onsubmit=\""
         "event.preventDefault();var f=document.getElementById('f').files[0];if(!f)return;"
         "var s=document.getElementById('s');s.innerText='Uploading & flashing ('+f.size+' bytes)...';"
@@ -191,26 +307,72 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
         "<p id='s'></p></body></html>",
         app_desc ? app_desc->version : "unknown",
         running ? running->label : "unknown",
-        s_serial_str);
+        s_serial_str,
+        days, hours, mins, secs,
+        free_kb, min_free_kb);
+    if (len < 0) {
+        len = 0;
+    } else if (len >= (int)sizeof(html)) {
+        len = sizeof(html) - 1;
+    }
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, html, len);
 }
 
-static esp_err_t ota_logs_get_handler(httpd_req_t *req)
+static esp_err_t stream_ring_buffer_response(
+    httpd_req_t *req,
+    const char *buf,
+    size_t buf_size,
+    const uint64_t *total_ptr,
+    const size_t *len_ptr,
+    const char *empty_msg)
 {
     httpd_resp_set_type(req, "text/plain; charset=utf-8");
+
+    uint64_t read_pos = 0;
+    portENTER_CRITICAL(&s_web_log_mux);
+    uint64_t total = *total_ptr;
+    size_t cur_len = *len_ptr;
+    if (!buf || cur_len == 0) {
+        portEXIT_CRITICAL(&s_web_log_mux);
+        if (empty_msg != nullptr) {
+            return httpd_resp_sendstr(req, empty_msg);
+        }
+        return httpd_resp_send_chunk(req, nullptr, 0);
+    }
+    read_pos = total - cur_len;
+    if (read_pos > 0) {
+        uint64_t scan = read_pos;
+        while (scan < total) {
+            char ch = buf[scan % buf_size];
+            scan++;
+            if (ch == '\n') {
+                if (scan < total) {
+                    read_pos = scan;
+                }
+                break;
+            }
+        }
+    }
+    portEXIT_CRITICAL(&s_web_log_mux);
+
     char chunk[1024];
-    size_t offset = 0;
     while (true) {
         size_t to_copy = 0;
         portENTER_CRITICAL(&s_web_log_mux);
-        if (offset < s_web_log_len) {
-            size_t start_idx = (s_web_log_head + WEB_LOG_BUFFER_SIZE - s_web_log_len + offset) % WEB_LOG_BUFFER_SIZE;
-            to_copy = sizeof(chunk);
-            if (to_copy > (s_web_log_len - offset)) to_copy = s_web_log_len - offset;
+        total = *total_ptr;
+        cur_len = *len_ptr;
+        uint64_t earliest = total - cur_len;
+        if (read_pos < earliest) {
+            read_pos = earliest;
+        }
+        if (read_pos < total) {
+            uint64_t avail = total - read_pos;
+            to_copy = (avail < sizeof(chunk)) ? static_cast<size_t>(avail) : sizeof(chunk);
             for (size_t i = 0; i < to_copy; ++i) {
-                chunk[i] = s_web_log_buf[(start_idx + i) % WEB_LOG_BUFFER_SIZE];
+                chunk[i] = buf[(read_pos + i) % buf_size];
             }
+            read_pos += to_copy;
         }
         portEXIT_CRITICAL(&s_web_log_mux);
 
@@ -220,9 +382,21 @@ static esp_err_t ota_logs_get_handler(httpd_req_t *req)
         if (httpd_resp_send_chunk(req, chunk, to_copy) != ESP_OK) {
             return ESP_FAIL;
         }
-        offset += to_copy;
     }
     return httpd_resp_send_chunk(req, nullptr, 0);
+}
+
+static esp_err_t ota_logs_get_handler(httpd_req_t *req)
+{
+    return stream_ring_buffer_response(req, s_web_log_buf, WEB_LOG_BUFFER_SIZE,
+                                       &s_web_log_total, &s_web_log_len, nullptr);
+}
+
+static esp_err_t ota_errors_get_handler(httpd_req_t *req)
+{
+    return stream_ring_buffer_response(req, s_rtc_err_store.buf, WEB_ERR_BUFFER_SIZE,
+                                       &s_rtc_err_store.total, &s_rtc_err_store.len,
+                                       "No errors or warnings recorded since boot.\n");
 }
 
 static esp_err_t ota_post_handler(httpd_req_t *req)
@@ -315,10 +489,17 @@ static void start_local_ota_server()
             .handler  = ota_logs_get_handler,
             .user_ctx = nullptr
         };
+        static const httpd_uri_t get_errors = {
+            .uri      = "/errors",
+            .method   = HTTP_GET,
+            .handler  = ota_errors_get_handler,
+            .user_ctx = nullptr
+        };
         httpd_register_uri_handler(s_ota_server, &get_root);
         httpd_register_uri_handler(s_ota_server, &get_logs);
+        httpd_register_uri_handler(s_ota_server, &get_errors);
         httpd_register_uri_handler(s_ota_server, &post_ota);
-        ESP_LOGI(TAG, "Local Wi-Fi OTA & Log Server started on port 80 (GET /, GET /logs, POST /ota)");
+        ESP_LOGI(TAG, "Local Wi-Fi OTA & Log Server started on port 80 (GET /, GET /logs, GET /errors, POST /ota)");
     }
 }
 
@@ -550,8 +731,25 @@ extern "C" void app_main()
 {
     esp_err_t err = ESP_OK;
 
-    // Enable in-memory circular logging for runtime web viewer (http://<lamp-ip>/logs)
+    // Initialize or preserve RTC-backed /errors log buffer across warm/watchdog/OTA reboots
+    if (s_rtc_err_store.magic != WEB_ERR_RTC_MAGIC ||
+        s_rtc_err_store.len > WEB_ERR_BUFFER_SIZE ||
+        s_rtc_err_store.total < s_rtc_err_store.len) {
+        s_rtc_err_store.magic = WEB_ERR_RTC_MAGIC;
+        s_rtc_err_store.total = 0;
+        s_rtc_err_store.len = 0;
+    } else if (s_rtc_err_store.len > 0) {
+        const char *reboot_marker = "--- [Reboot] ---\n";
+        for (const char *p = reboot_marker; *p != '\0'; ++p) {
+            ring_buf_append_byte(s_rtc_err_store.buf, WEB_ERR_BUFFER_SIZE,
+                                 &s_rtc_err_store.total, &s_rtc_err_store.len, *p);
+        }
+    }
+
+    // Allocate 32 KB heap buffer and enable in-memory circular logging (/logs & /errors)
+    s_web_log_buf = static_cast<char *>(heap_caps_malloc(WEB_LOG_BUFFER_SIZE, MALLOC_CAP_8BIT));
     esp_log_set_vprintf(web_log_vprintf);
+    chip::Logging::SetLogRedirectCallback(chip_log_redirect_cb);
 
     // Mark current OTA slot valid so bootloader won't roll back after a successful OTA update
     esp_ota_mark_app_valid_cancel_rollback();
@@ -565,7 +763,7 @@ extern "C" void app_main()
 
     const esp_app_desc_t *app_desc = esp_app_get_description();
     ESP_LOGI(TAG, "=================================================");
-    ESP_LOGI(TAG, "Starting Xiaomi Lamp 1S Matter over Wi-Fi Firmware");
+    ESP_LOGI(TAG, "Starting Xiaomi Lamp 1S Matter over Wi-Fi Firmware (Dev)");
     ESP_LOGI(TAG, "Firmware Version: %s", app_desc ? app_desc->version : "unknown");
     ESP_LOGI(TAG, "Serial / MAC:     %s", s_serial_str);
     ESP_LOGI(TAG, "Pairing Sticker:  1475-062-2865 (MT:QDOA2KGB00SUJN33U00)");
