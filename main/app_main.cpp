@@ -8,6 +8,7 @@
 #include <esp_http_server.h>
 #include <esp_system.h>
 #include <esp_timer.h>
+#include <nvs.h>
 #include <nvs_flash.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -16,6 +17,7 @@
 #include <esp_matter_providers.h>
 #include <esp_event.h>
 #include <esp_netif.h>
+#include <esp_wifi_types.h>
 #include <app/server/Server.h>
 #include <platform/CHIPDeviceLayer.h>
 #include <platform/CommissionableDataProvider.h>
@@ -727,6 +729,43 @@ static void ble_watchdog_task(void *pvParameters)
     }
 }
 
+static void ensure_wifi_sta_only_nvs()
+{
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open("nvs.net80211", NVS_READONLY, &handle);
+    if (err != ESP_OK) {
+        return;
+    }
+
+    uint8_t opmode = 0;
+    esp_err_t get_err = nvs_get_u8(handle, "opmode", &opmode);
+    nvs_close(handle);
+
+    if (get_err != ESP_OK || (opmode != WIFI_MODE_AP && opmode != WIFI_MODE_APSTA)) {
+        return;
+    }
+
+    err = nvs_open("nvs.net80211", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open nvs.net80211 for opmode migration: %s", esp_err_to_name(err));
+        return;
+    }
+
+    err = nvs_set_u8(handle, "opmode", static_cast<uint8_t>(WIFI_MODE_STA));
+    if (err == ESP_OK) {
+        err = nvs_commit(handle);
+    }
+    nvs_close(handle);
+
+    if (err == ESP_OK) {
+        ESP_LOGW(TAG, "Migrated persisted Wi-Fi NVS opmode %u -> %u (WIFI_MODE_STA)",
+                 (unsigned)opmode, (unsigned)WIFI_MODE_STA);
+    } else {
+        ESP_LOGE(TAG, "Failed to migrate Wi-Fi NVS opmode %u -> %u: %s",
+                 (unsigned)opmode, (unsigned)WIFI_MODE_STA, esp_err_to_name(err));
+    }
+}
+
 extern "C" void app_main()
 {
     esp_err_t err = ESP_OK;
@@ -778,6 +817,7 @@ extern "C" void app_main()
         err = nvs_flash_init();
     }
     ESP_ERROR_CHECK(err);
+    ensure_wifi_sta_only_nvs();
 
     // 2. Initialize Lamp Hardware Driver (LEDC PWM & Power Rail)
     ESP_ERROR_CHECK(lamp_driver_init());
