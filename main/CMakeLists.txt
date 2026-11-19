@@ -14,6 +14,7 @@ idf_component_register(
         esp_driver_ledc
         app_update
         esp_http_server
+        esp_wifi
 )
 
 target_compile_options(${COMPONENT_LIB} PRIVATE "-DCHIP_HAVE_CONFIG_H")
