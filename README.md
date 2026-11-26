@@ -2,7 +2,7 @@
 
 > [!NOTE]
 > **Developer Branch (`dev`)**  
-> This branch contains developer diagnostics, active live logging, and custom hardware credentials (`v1.1.0-dev`). For the standard, stable public release with test credentials, see the [`main`](https://github.com/1LyRa/xiaomi-lamp-1s-matter/tree/main) branch.
+> This branch contains developer diagnostics, active live logging, and custom hardware credentials (`v1.1.1-dev`). For the standard, stable public release with test credentials, see the [`main`](https://github.com/1LyRa/xiaomi-lamp-1s-matter/tree/main) branch.
 
 Custom firmware for the **Xiaomi Mi LED Desk Lamp 1S** (`YEELIGHT Mango1S Ver:0.3A` / Model `MJTD01SYL`) providing native **Matter over Wi-Fi (MoW)** capability using Espressif's official `esp-matter` SDK and ESP-IDF.
 
