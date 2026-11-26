@@ -5,6 +5,7 @@
 #include <esp_ota_ops.h>
 #include <esp_http_server.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <nvs.h>
 #include <nvs_flash.h>
 #include <freertos/FreeRTOS.h>
@@ -14,7 +15,8 @@
 #include <esp_matter_providers.h>
 #include <esp_event.h>
 #include <esp_netif.h>
-#include <esp_wifi_types.h>
+#include <esp_bt.h>
+#include <esp_wifi.h>
 #include <app/server/Server.h>
 #include <platform/CHIPDeviceLayer.h>
 #include <platform/CommissionableDataProvider.h>
@@ -150,6 +152,14 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
 {
     const esp_app_desc_t *app_desc = esp_app_get_description();
     const esp_partition_t *running = esp_ota_get_running_partition();
+    uint64_t uptime_s = static_cast<uint64_t>(esp_timer_get_time() / 1000000ULL);
+    unsigned long days = static_cast<unsigned long>(uptime_s / 86400ULL);
+    unsigned long hours = static_cast<unsigned long>((uptime_s % 86400ULL) / 3600ULL);
+    unsigned long mins = static_cast<unsigned long>((uptime_s % 3600ULL) / 60ULL);
+    unsigned long secs = static_cast<unsigned long>(uptime_s % 60ULL);
+    unsigned long free_kb = static_cast<unsigned long>(esp_get_free_heap_size() / 1024U);
+    unsigned long min_free_kb = static_cast<unsigned long>(esp_get_minimum_free_heap_size() / 1024U);
+
     char html[1536];
     int len = snprintf(html, sizeof(html),
         "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -158,7 +168,8 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
         "button,input{margin-top:12px;padding:10px;width:100%%;box-sizing:border-box;border-radius:6px;border:1px solid #444;background:#2c2c2c;color:#fff}"
         "button{background:#ff6700;border:none;font-weight:bold;cursor:pointer}</style></head><body>"
         "<h2>Xiaomi Mi LED Desk Lamp 1S</h2>"
-        "<p><b>Model:</b> MJTD01SYL<br><b>Firmware Version:</b> %s<br><b>Active Partition:</b> %s<br><b>Serial:</b> %s</p>"
+        "<p><b>Model:</b> MJTD01SYL<br><b>Firmware Version:</b> %s<br><b>Active Partition:</b> %s<br><b>Serial:</b> %s<br>"
+        "<b>Uptime:</b> %lud %02lu:%02lu:%02lu<br><b>Free Heap:</b> %lu KB (min: %lu KB)</p>"
         "<form method='POST' action='/ota' enctype='application/octet-stream' onsubmit=\""
         "event.preventDefault();var f=document.getElementById('f').files[0];if(!f)return;"
         "var s=document.getElementById('s');s.innerText='Uploading & flashing ('+f.size+' bytes)...';"
@@ -168,7 +179,14 @@ static esp_err_t ota_status_get_handler(httpd_req_t *req)
         "<p id='s'></p></body></html>",
         app_desc ? app_desc->version : "unknown",
         running ? running->label : "unknown",
-        s_serial_str);
+        s_serial_str,
+        days, hours, mins, secs,
+        free_kb, min_free_kb);
+    if (len < 0) {
+        len = 0;
+    } else if (len >= (int)sizeof(html)) {
+        len = sizeof(html) - 1;
+    }
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, html, len);
 }
@@ -334,10 +352,32 @@ static void reopen_commissioning_window_work(intptr_t arg)
     }
 }
 
+static void disable_wifi_power_save_if_safe()
+{
+    // ESP32 software Wi-Fi/BLE coexistence requires modem sleep while BT is active.
+    // Only disable modem sleep once BLE has been deinitialized.
+    if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE) {
+        return;
+    }
+
+    wifi_ps_type_t ps = WIFI_PS_NONE;
+    if (esp_wifi_get_ps(&ps) == ESP_OK && ps == WIFI_PS_NONE) {
+        return;
+    }
+
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Disabled Wi-Fi modem sleep (WIFI_PS_NONE)");
+    } else {
+        ESP_LOGW(TAG, "Failed to disable Wi-Fi modem sleep: %s", esp_err_to_name(err));
+    }
+}
+
 static void on_got_ip(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     ip_event_got_ip_t *event = static_cast<ip_event_got_ip_t *>(event_data);
     start_local_ota_server();
+    disable_wifi_power_save_if_safe();
     ESP_LOGI(TAG, "Wi-Fi IPv4 Acquired: " IPSTR " -> Local OTA Web UI: http://" IPSTR "/",
              IP2STR(&event->ip_info.ip), IP2STR(&event->ip_info.ip));
 }
@@ -411,6 +451,10 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
             lamp_set_pairing_state(LAMP_PAIRING_FACTORY_RESET);
             xTaskCreate(remote_factory_reset_task, "rem_rst", 3072, nullptr, 5, nullptr);
         }
+        break;
+
+    case DeviceEventType::kBLEDeinitialized:
+        disable_wifi_power_save_if_safe();
         break;
 
     default:
