@@ -17,7 +17,8 @@
 #include <esp_matter_providers.h>
 #include <esp_event.h>
 #include <esp_netif.h>
-#include <esp_wifi_types.h>
+#include <esp_bt.h>
+#include <esp_wifi.h>
 #include <app/server/Server.h>
 #include <platform/CHIPDeviceLayer.h>
 #include <platform/CommissionableDataProvider.h>
@@ -576,10 +577,32 @@ static void reopen_commissioning_window_work(intptr_t arg)
     }
 }
 
+static void disable_wifi_power_save_if_safe()
+{
+    // ESP32 software Wi-Fi/BLE coexistence requires modem sleep while BT is active.
+    // Only disable modem sleep once BLE has been deinitialized.
+    if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE) {
+        return;
+    }
+
+    wifi_ps_type_t ps = WIFI_PS_NONE;
+    if (esp_wifi_get_ps(&ps) == ESP_OK && ps == WIFI_PS_NONE) {
+        return;
+    }
+
+    esp_err_t err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Disabled Wi-Fi modem sleep (WIFI_PS_NONE)");
+    } else {
+        ESP_LOGW(TAG, "Failed to disable Wi-Fi modem sleep: %s", esp_err_to_name(err));
+    }
+}
+
 static void on_got_ip(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     ip_event_got_ip_t *event = static_cast<ip_event_got_ip_t *>(event_data);
     start_local_ota_server();
+    disable_wifi_power_save_if_safe();
     ESP_LOGI(TAG, "Wi-Fi IPv4 Acquired: " IPSTR " -> Local OTA Web UI: http://" IPSTR "/",
              IP2STR(&event->ip_info.ip), IP2STR(&event->ip_info.ip));
 }
@@ -653,6 +676,10 @@ static void app_event_cb(const ChipDeviceEvent *event, intptr_t arg)
             lamp_set_pairing_state(LAMP_PAIRING_FACTORY_RESET);
             xTaskCreate(remote_factory_reset_task, "rem_rst", 3072, nullptr, 5, nullptr);
         }
+        break;
+
+    case DeviceEventType::kBLEDeinitialized:
+        disable_wifi_power_save_if_safe();
         break;
 
     default:

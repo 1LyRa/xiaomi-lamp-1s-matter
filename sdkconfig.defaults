@@ -36,6 +36,8 @@ CONFIG_LWIP_IPV6_NUM_ADDRESSES=6
 CONFIG_LWIP_MULTICAST_PING=y
 CONFIG_LWIP_HOOK_IP6_ROUTE_DEFAULT=y
 CONFIG_LWIP_HOOK_ND6_GET_GW_DEFAULT=y
+CONFIG_LWIP_IPV6_ND6_NUM_NEIGHBORS=10
+CONFIG_LWIP_IPV6_MEMP_NUM_ND6_QUEUE=8
 
 # Wi-Fi Buffer & Mode Configuration
 # Disable SoftAP (Matter uses STA + BLE commissioning only); prevents ESP-IDF from defaulting NVS opmode to WIFI_MODE_AP (which CHIP's EnableStationMode turns into STA+AP)
